@@ -1,0 +1,42 @@
+# ───────────── STAGE 1 : BUILD TS ─────────────
+FROM node:20-alpine AS builder
+
+WORKDIR /app
+
+# 1) Dépendances pour build (inclut TypeScript, etc.)
+COPY package*.json ./
+RUN npm ci
+
+# 2) Sources + config
+COPY tsconfig.json ./
+COPY src ./src
+
+# 3) Build TypeScript → dist/
+RUN npm run build
+
+# ───────────── STAGE 2 : RUNTIME ─────────────
+FROM node:20-alpine
+
+ENV NODE_ENV=production
+
+WORKDIR /app
+
+# 1) Copier uniquement package.json + package-lock.json
+COPY package*.json ./
+
+# 2) Installer deps de prod uniquement
+RUN npm ci --omit=dev --ignore-scripts \
+ && npm cache clean --force \
+ && rm -rf /usr/local/lib/node_modules \
+ && rm -rf /tmp/*
+
+# 3) Copier seulement le JS compilé
+COPY --from=builder /app/dist ./dist
+
+# 4) Créer un user non-root
+RUN addgroup -S nodegroup && adduser -S nodeuser -G nodegroup
+USER nodeuser
+
+EXPOSE 9090
+
+CMD ["node", "dist/index.js"]
